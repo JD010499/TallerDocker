@@ -33,9 +33,8 @@ def get_connection():
             time.sleep(DB_RETRY_DELAY)
     raise Exception("No se pudo conectar a la base de datos")
 
-# Inicializar la base de datos al arrancar
-try:
-    conn = get_connection()
+
+def ensure_schema(conn):
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -45,7 +44,18 @@ try:
     """)
     conn.commit()
     cur.close()
-    conn.close()
+
+
+def initialize_database():
+    conn = get_connection()
+    try:
+        ensure_schema(conn)
+    finally:
+        conn.close()
+
+# Inicializar la base de datos al arrancar
+try:
+    initialize_database()
     print("Tabla 'users' verificada/creada exitosamente.")
 except Exception as e:
     print("Error inicializando DB:", e)
@@ -58,11 +68,14 @@ def home():
 def get_users():
     try:
         conn = get_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT id, name FROM users;")
-        users = cur.fetchall()
-        cur.close()
-        conn.close()
+        try:
+            ensure_schema(conn)
+            cur = conn.cursor()
+            cur.execute("SELECT id, name FROM users;")
+            users = cur.fetchall()
+            cur.close()
+        finally:
+            conn.close()
         return jsonify([{"id": row[0], "name": row[1]} for row in users])
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -76,13 +89,16 @@ def create_user():
             return jsonify({"error": "El nombre es requerido"}), 400
 
         conn = get_connection()
-        cur = conn.cursor()
-        # Insertar evitando duplicados exactos (opcional según el diseño)
-        cur.execute("INSERT INTO users (name) VALUES (%s) ON CONFLICT DO NOTHING RETURNING id;", (name,))
-        result = cur.fetchone()
-        conn.commit()
-        cur.close()
-        conn.close()
+        try:
+            ensure_schema(conn)
+            cur = conn.cursor()
+            # Insertar evitando duplicados exactos (opcional según el diseño)
+            cur.execute("INSERT INTO users (name) VALUES (%s) ON CONFLICT DO NOTHING RETURNING id;", (name,))
+            result = cur.fetchone()
+            conn.commit()
+            cur.close()
+        finally:
+            conn.close()
         
         if result:
             return jsonify({"message": "Usuario creado", "id": result[0], "name": name}), 201
